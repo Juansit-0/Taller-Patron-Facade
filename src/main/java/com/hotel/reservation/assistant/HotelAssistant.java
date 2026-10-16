@@ -13,6 +13,7 @@ import com.google.genai.types.Part;
 import com.hotel.reservation.dto.ChatResponse;
 import com.hotel.reservation.exception.AssistantUnavailableException;
 import com.hotel.reservation.facade.HotelFacade;
+import com.hotel.reservation.model.Guest;
 import com.hotel.reservation.model.Reservation;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -38,8 +39,10 @@ public class HotelAssistant {
             Extra services: SPA 50 USD, BREAKFAST 15 USD per night, TRANSFER 30 USD.
             Rules:
             - Always use the tools to check availability and prices. Never invent rooms, prices or reservation data.
-            - Dates for tools use the format YYYY-MM-DD. The user message may start with today's date; use it to resolve relative dates.
-            - Before creating a reservation collect the guest full name, email, phone and identity document.
+            - Dates for tools use the format YYYY-MM-DD. The first user message starts with today's date; use it to resolve relative dates.
+            - The guest is already signed in and identified in the first user message. NEVER ask for their name, email, phone or identity document.
+            - Greet the guest by their first name.
+            - Use list_my_reservations when the guest asks about their reservations or does not remember a reservation id.
             - Before calling create_reservation, check_in or check_out, summarize the action and ask the guest for explicit confirmation. Only call the tool after the guest confirms.
             - After creating a reservation, tell the guest the reservation id.
             - After check_in, tell the guest the digital key is ready.
@@ -52,7 +55,7 @@ public class HotelAssistant {
     private final ObjectMapper objectMapper;
     private final String apiKey;
     private final String model;
-    private final Map<String, List<Content>> conversations = new ConcurrentHashMap<>();
+    private final Map<String, Conversation> conversations = new ConcurrentHashMap<>();
     private final Map<String, String> lastReservations = new ConcurrentHashMap<>();
     private Client client;
 
@@ -70,21 +73,27 @@ public class HotelAssistant {
         return !apiKey.isBlank();
     }
 
-    public ChatResponse chat(String conversationId, String message) {
+    public ChatResponse chat(Guest guest, String conversationId, String message) {
         if (!isEnabled()) {
             throw new AssistantUnavailableException("Vicky no esta disponible en este momento");
         }
-        String id = conversationId == null || conversationId.isBlank() ? UUID.randomUUID().toString() : conversationId;
-        List<Content> history = conversations.computeIfAbsent(id, key -> new ArrayList<>());
+        String id = conversationId == null ? "" : conversationId;
+        Conversation conversation = conversations.get(id);
+        if (conversation == null || !conversation.ownerId().equals(guest.getId())) {
+            id = UUID.randomUUID().toString();
+            conversation = new Conversation(guest.getId(), new ArrayList<>());
+            conversations.put(id, conversation);
+        }
+        List<Content> history = conversation.history();
         synchronized (history) {
-            String reply = answer(id, history, message);
-            return new ChatResponse(id, reply, currentReservation(id));
+            String reply = answer(guest, id, history, message);
+            return new ChatResponse(id, reply, currentReservation(guest, id));
         }
     }
 
-    private String answer(String conversationId, List<Content> history, String message) {
+    private String answer(Guest guest, String conversationId, List<Content> history, String message) {
         List<Content> turn = new ArrayList<>(history);
-        String text = history.isEmpty() ? "Fecha de hoy: " + LocalDate.now() + ". " + message : message;
+        String text = history.isEmpty() ? guestContext(guest) + message : message;
         turn.add(Content.builder().role("user").parts(Part.fromText(text)).build());
         for (int iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
             GenerateContentResponse response = client().models.generateContent(model, turn, config());
@@ -100,16 +109,22 @@ public class HotelAssistant {
                 history.addAll(turn);
                 return replyText(modelContent);
             }
-            List<Part> results = calls.stream().map(call -> runTool(conversationId, call)).toList();
+            List<Part> results = calls.stream().map(call -> runTool(guest, conversationId, call)).toList();
             turn.add(Content.builder().role("user").parts(results).build());
         }
         return FALLBACK_REPLY;
     }
 
-    private Part runTool(String conversationId, FunctionCall call) {
+    private String guestContext(Guest guest) {
+        return "Fecha de hoy: " + LocalDate.now() + ". Huesped: " + guest.getFullName()
+                + " (email " + guest.getEmail() + ", telefono " + guest.getPhone()
+                + ", documento " + guest.getDocumentId() + "). ";
+    }
+
+    private Part runTool(Guest guest, String conversationId, FunctionCall call) {
         Map<String, Object> response;
         try {
-            Object result = assistantTools.execute(call);
+            Object result = assistantTools.execute(guest, call);
             if (result instanceof Reservation reservation) {
                 lastReservations.put(conversationId, reservation.getId());
             }
@@ -132,9 +147,9 @@ public class HotelAssistant {
         return reply.isEmpty() ? FALLBACK_REPLY : reply;
     }
 
-    private Reservation currentReservation(String conversationId) {
+    private Reservation currentReservation(Guest guest, String conversationId) {
         String reservationId = lastReservations.get(conversationId);
-        return reservationId == null ? null : hotelFacade.findReservation(reservationId);
+        return reservationId == null ? null : hotelFacade.findReservation(guest, reservationId);
     }
 
     private GenerateContentConfig config() {
@@ -151,5 +166,8 @@ public class HotelAssistant {
             client = Client.builder().apiKey(apiKey).build();
         }
         return client;
+    }
+
+    private record Conversation(Long ownerId, List<Content> history) {
     }
 }

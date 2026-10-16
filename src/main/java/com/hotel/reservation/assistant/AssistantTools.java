@@ -5,10 +5,12 @@ import com.google.genai.types.FunctionDeclaration;
 import com.google.genai.types.Schema;
 import com.google.genai.types.Tool;
 import com.google.genai.types.Type;
-import com.hotel.reservation.dto.ReservationRequest;
+import com.hotel.reservation.dto.BookingRequest;
 import com.hotel.reservation.dto.RoomAvailability;
 import com.hotel.reservation.facade.HotelFacade;
 import com.hotel.reservation.model.ExtraServiceType;
+import com.hotel.reservation.model.Guest;
+import com.hotel.reservation.model.Reservation;
 import com.hotel.reservation.model.RoomType;
 import java.time.LocalDate;
 import java.util.List;
@@ -35,12 +37,14 @@ public class AssistantTools {
                                         .enum_("SINGLE", "DOUBLE", "SUITE")
                                         .description("Optional room type filter").build()),
                         "check_in", "check_out"),
-                function("create_reservation", "Create a reservation for a guest in a specific room",
-                        Map.of("guest_name", text("Guest full name"), "guest_email", text("Guest email"),
-                                "guest_phone", text("Guest phone number"), "document_id", text("Guest identity document"),
-                                "room_number", Schema.builder().type(Type.Known.INTEGER).description("Room number").build(),
+                function("create_reservation", "Create a reservation for the signed in guest in a specific room",
+                        Map.of("room_number", Schema.builder().type(Type.Known.INTEGER).description("Room number").build(),
                                 "check_in", DATE, "check_out", DATE),
-                        "guest_name", "guest_email", "guest_phone", "document_id", "room_number", "check_in", "check_out"),
+                        "room_number", "check_in", "check_out"),
+                FunctionDeclaration.builder()
+                        .name("list_my_reservations")
+                        .description("List the reservations of the signed in guest, newest first")
+                        .build(),
                 function("add_service", "Add an extra service to a reservation",
                         Map.of("reservation_id", RESERVATION_ID,
                                 "service_type", Schema.builder().type(Type.Known.STRING)
@@ -55,20 +59,19 @@ public class AssistantTools {
                 .build();
     }
 
-    public Object execute(FunctionCall call) {
+    public Object execute(Guest guest, FunctionCall call) {
         String name = call.name().orElse("");
         Map<String, Object> args = call.args().orElse(Map.of());
         return switch (name) {
             case "check_availability" -> availableRooms(args);
-            case "create_reservation" -> hotelFacade.createReservation(new ReservationRequest(
-                    string(args, "guest_name"), string(args, "guest_email"), string(args, "guest_phone"),
-                    string(args, "document_id"), integer(args, "room_number"),
-                    date(args, "check_in"), date(args, "check_out")));
-            case "add_service" -> hotelFacade.addService(string(args, "reservation_id"),
+            case "create_reservation" -> hotelFacade.bookRoom(guest, new BookingRequest(
+                    integer(args, "room_number"), date(args, "check_in"), date(args, "check_out")));
+            case "list_my_reservations" -> myReservations(guest);
+            case "add_service" -> hotelFacade.addService(guest, string(args, "reservation_id"),
                     ExtraServiceType.valueOf(string(args, "service_type")));
-            case "check_in" -> hotelFacade.checkIn(string(args, "reservation_id"));
-            case "check_out" -> hotelFacade.checkOut(string(args, "reservation_id"));
-            case "get_reservation" -> hotelFacade.findReservation(string(args, "reservation_id"));
+            case "check_in" -> hotelFacade.checkIn(guest, string(args, "reservation_id"));
+            case "check_out" -> hotelFacade.checkOut(guest, string(args, "reservation_id"));
+            case "get_reservation" -> hotelFacade.findReservation(guest, string(args, "reservation_id"));
             default -> throw new IllegalArgumentException("Unknown tool " + name);
         };
     }
@@ -82,6 +85,19 @@ public class AssistantTools {
                         "floor", room.floor(), "season", room.season(), "nights", room.nights(),
                         "totalPrice", room.totalPrice()))
                 .toList();
+    }
+
+    private List<Map<String, Object>> myReservations(Guest guest) {
+        return hotelFacade.findGuestReservations(guest).stream()
+                .map(reservation -> Map.<String, Object>of("id", reservation.getId(),
+                        "roomNumber", reservation.getRoom().getNumber(), "checkIn", reservation.getCheckIn(),
+                        "checkOut", reservation.getCheckOut(), "status", reservation.getStatus(),
+                        "roomTotal", reservation.getRoomTotal(), "services", serviceNames(reservation)))
+                .toList();
+    }
+
+    private List<String> serviceNames(Reservation reservation) {
+        return reservation.getServices().stream().map(service -> service.getType().name()).toList();
     }
 
     private static FunctionDeclaration function(String name, String description, Map<String, Schema> properties,

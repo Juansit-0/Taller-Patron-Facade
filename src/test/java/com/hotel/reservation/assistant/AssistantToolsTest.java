@@ -2,11 +2,14 @@ package com.hotel.reservation.assistant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.google.genai.types.FunctionCall;
+import com.hotel.reservation.dto.BookingRequest;
 import com.hotel.reservation.dto.RoomAvailability;
 import com.hotel.reservation.facade.HotelFacade;
+import com.hotel.reservation.model.Guest;
 import com.hotel.reservation.model.RoomType;
 import com.hotel.reservation.model.SeasonType;
 import java.math.BigDecimal;
@@ -29,10 +32,29 @@ class AssistantToolsTest {
                 .args(Map.of("check_in", "2030-12-10", "check_out", "2030-12-12", "room_type", "SUITE"))
                 .build();
 
-        List<?> rooms = (List<?>) new AssistantTools(hotelFacade).execute(call);
+        List<?> rooms = (List<?>) new AssistantTools(hotelFacade).execute(guest(), call);
 
         assertEquals(1, rooms.size());
         assertEquals(303, ((Map<?, ?>) rooms.get(0)).get("number"));
+    }
+
+    @Test
+    void createReservationBooksRoomForTheSignedInGuest() {
+        HotelFacade hotelFacade = mock(HotelFacade.class);
+        Guest guest = guest();
+        FunctionCall call = FunctionCall.builder()
+                .name("create_reservation")
+                .args(Map.of("room_number", 303, "check_in", "2030-12-10", "check_out", "2030-12-12"))
+                .build();
+
+        new AssistantTools(hotelFacade).execute(guest, call);
+
+        verify(hotelFacade).bookRoom(guest,
+                new BookingRequest(303, LocalDate.of(2030, 12, 10), LocalDate.of(2030, 12, 12)));
+    }
+
+    private Guest guest() {
+        return new Guest("Ana Torres", "ana@example.com", "3001234567", "1085123456", "hash");
     }
 
     private RoomAvailability room(int number, boolean available) {
