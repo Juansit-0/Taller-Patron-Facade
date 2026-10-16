@@ -10,6 +10,7 @@ import com.hotel.reservation.model.Reservation;
 import com.hotel.reservation.model.ReservationStatus;
 import com.hotel.reservation.model.Room;
 import com.hotel.reservation.model.RoomType;
+import com.hotel.reservation.repository.ReservationRepository;
 import com.hotel.reservation.service.AccessService;
 import com.hotel.reservation.service.AmenityService;
 import com.hotel.reservation.service.BillingService;
@@ -19,10 +20,9 @@ import com.hotel.reservation.strategy.SeasonRateStrategy;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
 public class HotelFacade {
@@ -32,15 +32,17 @@ public class HotelFacade {
     private final AmenityService amenityService;
     private final BillingService billingService;
     private final AccessService accessService;
-    private final Map<String, Reservation> reservations = new ConcurrentHashMap<>();
+    private final ReservationRepository reservationRepository;
 
     public HotelFacade(RoomService roomService, RateService rateService, AmenityService amenityService,
-                       BillingService billingService, AccessService accessService) {
+                       BillingService billingService, AccessService accessService,
+                       ReservationRepository reservationRepository) {
         this.roomService = roomService;
         this.rateService = rateService;
         this.amenityService = amenityService;
         this.billingService = billingService;
         this.accessService = accessService;
+        this.reservationRepository = reservationRepository;
     }
 
     public List<RoomAvailability> checkAvailability(LocalDate checkIn, LocalDate checkOut, RoomType type) {
@@ -66,20 +68,20 @@ public class HotelFacade {
                 rateService.strategyFor(request.checkIn()).season(),
                 rateService.nightlyRate(room, request.checkIn()),
                 rateService.calculateTotal(room, request.checkIn(), nights));
-        roomService.reserve(reservation);
-        reservations.put(reservation.getId(), reservation);
-        return reservation;
+        return roomService.reserve(reservation);
     }
 
+    @Transactional
     public Reservation addService(String reservationId, ExtraServiceType serviceType) {
         Reservation reservation = findReservation(reservationId);
-        if (!reservation.isActive()) {
+        if (!reservation.holdsRoom()) {
             throw new ReservationConflictException("Services cannot be added to a reservation that is " + reservation.getStatus());
         }
         reservation.addService(amenityService.createService(serviceType, reservation.getNights()));
-        return reservation;
+        return reservationRepository.save(reservation);
     }
 
+    @Transactional
     public Reservation checkIn(String reservationId) {
         Reservation reservation = findReservation(reservationId);
         if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
@@ -87,26 +89,22 @@ public class HotelFacade {
         }
         reservation.setDigitalKey(accessService.generateKey());
         reservation.setStatus(ReservationStatus.CHECKED_IN);
-        return reservation;
+        return reservationRepository.save(reservation);
     }
 
+    @Transactional
     public Reservation checkOut(String reservationId) {
         Reservation reservation = findReservation(reservationId);
         if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
             throw new ReservationConflictException("Check-out requires a CHECKED_IN reservation, current status is " + reservation.getStatus());
         }
         reservation.setInvoice(billingService.generateInvoice(reservation));
-        reservation.setStatus(ReservationStatus.CHECKED_OUT);
-        roomService.release(reservation);
-        return reservation;
+        return roomService.release(reservation);
     }
 
     public Reservation findReservation(String reservationId) {
-        Reservation reservation = reservations.get(reservationId);
-        if (reservation == null) {
-            throw new ReservationNotFoundException("Reservation " + reservationId + " not found");
-        }
-        return reservation;
+        return reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ReservationNotFoundException("Reservation " + reservationId + " not found"));
     }
 
     private long validateDates(LocalDate checkIn, LocalDate checkOut) {
