@@ -1,6 +1,6 @@
 # Hotel Backend - Taller Patron Facade
 
-Backend en Spring Boot para un sistema de reservas de hotel. El estado se guarda en memoria (sin base de datos).
+Backend en Spring Boot para un sistema de reservas de hotel. Persistencia con Spring Data JPA: H2 en memoria por defecto (local) y PostgreSQL en Railway mediante `DATABASE_URL_JDBC`, `PGUSER` y `PGPASSWORD`.
 
 ## Patrones de diseno
 
@@ -48,4 +48,4 @@ Errores: `{ "message": "..." }` con 400 (datos invalidos), 404 (no existe) o 409
 ./mvnw test
 ```
 
-Variables de entorno: `PORT` (por defecto 8080) y `FRONTEND_URL` (origenes CORS separados por coma, por defecto `*`).
+Variables de entorno: `PORT` (por defecto 8080), `FRONTEND_URL` (origenes CORS separados por coma, por defecto `*`), `DATABASE_URL_JDBC` (por ejemplo `jdbc:postgresql://host:5432/db`), `PGUSER` y `PGPASSWORD`.
