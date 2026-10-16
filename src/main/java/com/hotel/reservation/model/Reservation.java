@@ -1,5 +1,6 @@
 package com.hotel.reservation.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
@@ -38,6 +39,11 @@ public class Reservation {
 
     @Column(name = "document_id", nullable = false)
     private String documentId;
+
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "guest_id")
+    private Guest guest;
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "room_number", nullable = false)
@@ -81,14 +87,14 @@ public class Reservation {
     protected Reservation() {
     }
 
-    public Reservation(String id, String guestName, String guestEmail, String guestPhone, String documentId,
-                       Room room, LocalDate checkIn, LocalDate checkOut, long nights, SeasonType season,
+    public Reservation(String id, Guest guest, Room room, LocalDate checkIn, LocalDate checkOut, long nights, SeasonType season,
                        BigDecimal nightlyRate, BigDecimal roomTotal) {
         this.id = id;
-        this.guestName = guestName;
-        this.guestEmail = guestEmail;
-        this.guestPhone = guestPhone;
-        this.documentId = documentId;
+        this.guest = guest;
+        this.guestName = guest.getFullName();
+        this.guestEmail = guest.getEmail();
+        this.guestPhone = guest.getPhone();
+        this.documentId = guest.getDocumentId();
         this.room = room;
         this.checkIn = checkIn;
         this.checkOut = checkOut;
@@ -96,6 +102,10 @@ public class Reservation {
         this.season = season;
         this.nightlyRate = nightlyRate;
         this.roomTotal = roomTotal;
+    }
+
+    public boolean belongsTo(Guest candidate) {
+        return guest != null && guest.getId().equals(candidate.getId());
     }
 
     public boolean holdsRoom() {
