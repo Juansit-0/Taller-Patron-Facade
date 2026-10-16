@@ -1,11 +1,13 @@
 package com.hotel.reservation.facade;
 
-import com.hotel.reservation.dto.ReservationRequest;
+import com.hotel.reservation.dto.BookingRequest;
 import com.hotel.reservation.dto.RoomAvailability;
+import com.hotel.reservation.exception.ForbiddenException;
 import com.hotel.reservation.exception.InvalidReservationException;
 import com.hotel.reservation.exception.ReservationConflictException;
 import com.hotel.reservation.exception.ReservationNotFoundException;
 import com.hotel.reservation.model.ExtraServiceType;
+import com.hotel.reservation.model.Guest;
 import com.hotel.reservation.model.Reservation;
 import com.hotel.reservation.model.ReservationStatus;
 import com.hotel.reservation.model.Room;
@@ -58,22 +60,25 @@ public class HotelFacade {
                 .toList();
     }
 
-    public Reservation createReservation(ReservationRequest request) {
+    public Reservation bookRoom(Guest guest, BookingRequest request) {
         long nights = validateDates(request.checkIn(), request.checkOut());
         Room room = roomService.findRoom(request.roomNumber());
         Reservation reservation = new Reservation(
                 "RSV-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(),
-                request.guestName(), request.guestEmail(), request.guestPhone(), request.documentId(),
-                room, request.checkIn(), request.checkOut(), nights,
+                guest, room, request.checkIn(), request.checkOut(), nights,
                 rateService.strategyFor(request.checkIn()).season(),
                 rateService.nightlyRate(room, request.checkIn()),
                 rateService.calculateTotal(room, request.checkIn(), nights));
         return roomService.reserve(reservation);
     }
 
+    public List<Reservation> findGuestReservations(Guest guest) {
+        return reservationRepository.findByGuestIdOrderByCheckInDesc(guest.getId());
+    }
+
     @Transactional
-    public Reservation addService(String reservationId, ExtraServiceType serviceType) {
-        Reservation reservation = findReservation(reservationId);
+    public Reservation addService(Guest guest, String reservationId, ExtraServiceType serviceType) {
+        Reservation reservation = findReservation(guest, reservationId);
         if (!reservation.holdsRoom()) {
             throw new ReservationConflictException("Services cannot be added to a reservation that is " + reservation.getStatus());
         }
@@ -82,8 +87,8 @@ public class HotelFacade {
     }
 
     @Transactional
-    public Reservation checkIn(String reservationId) {
-        Reservation reservation = findReservation(reservationId);
+    public Reservation checkIn(Guest guest, String reservationId) {
+        Reservation reservation = findReservation(guest, reservationId);
         if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
             throw new ReservationConflictException("Check-in requires a CONFIRMED reservation, current status is " + reservation.getStatus());
         }
@@ -93,8 +98,8 @@ public class HotelFacade {
     }
 
     @Transactional
-    public Reservation checkOut(String reservationId) {
-        Reservation reservation = findReservation(reservationId);
+    public Reservation checkOut(Guest guest, String reservationId) {
+        Reservation reservation = findReservation(guest, reservationId);
         if (reservation.getStatus() != ReservationStatus.CHECKED_IN) {
             throw new ReservationConflictException("Check-out requires a CHECKED_IN reservation, current status is " + reservation.getStatus());
         }
@@ -102,9 +107,13 @@ public class HotelFacade {
         return roomService.release(reservation);
     }
 
-    public Reservation findReservation(String reservationId) {
-        return reservationRepository.findById(reservationId)
+    public Reservation findReservation(Guest guest, String reservationId) {
+        Reservation reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ReservationNotFoundException("Reservation " + reservationId + " not found"));
+        if (!reservation.belongsTo(guest)) {
+            throw new ForbiddenException("Esta reserva no pertenece a tu cuenta");
+        }
+        return reservation;
     }
 
     private long validateDates(LocalDate checkIn, LocalDate checkOut) {
