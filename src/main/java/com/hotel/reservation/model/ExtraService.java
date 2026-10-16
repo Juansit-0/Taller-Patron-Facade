@@ -1,11 +1,23 @@
 package com.hotel.reservation.model;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import java.math.BigDecimal;
 
+@Embeddable
 public class ExtraService {
 
-    private final ExtraServiceType type;
-    private final BigDecimal cost;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "service_type", nullable = false)
+    private ExtraServiceType type;
+
+    @Column(name = "cost", nullable = false, precision = 10, scale = 2)
+    private BigDecimal cost;
+
+    protected ExtraService() {
+    }
 
     public ExtraService(ExtraServiceType type, BigDecimal cost) {
         this.type = type;

@@ -1,13 +1,26 @@
 package com.hotel.reservation.model;
 
+import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
 import java.math.BigDecimal;
 
+@Embeddable
 public class InvoiceLine {
 
-    private final String description;
-    private final long quantity;
-    private final BigDecimal unitPrice;
-    private final BigDecimal amount;
+    @Column(name = "description", nullable = false)
+    private String description;
+
+    @Column(name = "quantity", nullable = false)
+    private long quantity;
+
+    @Column(name = "unit_price", nullable = false, precision = 10, scale = 2)
+    private BigDecimal unitPrice;
+
+    @Column(name = "amount", nullable = false, precision = 10, scale = 2)
+    private BigDecimal amount;
+
+    protected InvoiceLine() {
+    }
 
     public InvoiceLine(String description, long quantity, BigDecimal unitPrice) {
         this.description = description;

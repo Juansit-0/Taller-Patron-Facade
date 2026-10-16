@@ -1,28 +1,85 @@
 package com.hotel.reservation.model;
 
+import jakarta.persistence.CascadeType;
+import jakarta.persistence.CollectionTable;
+import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToOne;
+import jakarta.persistence.OrderColumn;
+import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+@Entity
+@Table(name = "reservations")
 public class Reservation {
 
-    private final String id;
-    private final String guestName;
-    private final String guestEmail;
-    private final String guestPhone;
-    private final String documentId;
-    private final Room room;
-    private final LocalDate checkIn;
-    private final LocalDate checkOut;
-    private final long nights;
-    private final SeasonType season;
-    private final BigDecimal nightlyRate;
-    private final BigDecimal roomTotal;
-    private final List<ExtraService> services = new ArrayList<>();
+    @Id
+    @Column(name = "reservation_id")
+    private String id;
+
+    @Column(name = "guest_name", nullable = false)
+    private String guestName;
+
+    @Column(name = "guest_email", nullable = false)
+    private String guestEmail;
+
+    @Column(name = "guest_phone", nullable = false)
+    private String guestPhone;
+
+    @Column(name = "document_id", nullable = false)
+    private String documentId;
+
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "room_number", nullable = false)
+    private Room room;
+
+    @Column(name = "check_in", nullable = false)
+    private LocalDate checkIn;
+
+    @Column(name = "check_out", nullable = false)
+    private LocalDate checkOut;
+
+    @Column(name = "nights", nullable = false)
+    private long nights;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "season_type", nullable = false)
+    private SeasonType season;
+
+    @Column(name = "nightly_rate", nullable = false, precision = 10, scale = 2)
+    private BigDecimal nightlyRate;
+
+    @Column(name = "room_total", nullable = false, precision = 10, scale = 2)
+    private BigDecimal roomTotal;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "reservation_services", joinColumns = @JoinColumn(name = "reservation_id"))
+    @OrderColumn(name = "service_order")
+    private List<ExtraService> services = new ArrayList<>();
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "reservation_status", nullable = false)
     private ReservationStatus status = ReservationStatus.CONFIRMED;
+
+    @Column(name = "digital_key")
     private String digitalKey;
+
+    @OneToOne(cascade = CascadeType.ALL, fetch = FetchType.EAGER)
+    @JoinColumn(name = "invoice_number")
     private Invoice invoice;
+
+    protected Reservation() {
+    }
 
     public Reservation(String id, String guestName, String guestEmail, String guestPhone, String documentId,
                        Room room, LocalDate checkIn, LocalDate checkOut, long nights, SeasonType season,
@@ -41,11 +98,7 @@ public class Reservation {
         this.roomTotal = roomTotal;
     }
 
-    public boolean overlaps(LocalDate otherCheckIn, LocalDate otherCheckOut) {
-        return checkIn.isBefore(otherCheckOut) && otherCheckIn.isBefore(checkOut);
-    }
-
-    public boolean isActive() {
+    public boolean holdsRoom() {
         return status == ReservationStatus.CONFIRMED || status == ReservationStatus.CHECKED_IN;
     }
 
